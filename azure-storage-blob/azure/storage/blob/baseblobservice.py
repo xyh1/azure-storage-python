@@ -3407,7 +3407,7 @@ class BaseBlobService(StorageClient):
 
     # ----------------------------Methods related to directory manipulations---------------------------- #
 
-    def create_directory(self, container_name, directory_path, proposed_lease_id=None, lease_id=None, metadata=None,
+    def create_directory(self, container_name, directory_path, lease_id=None, metadata=None,
                          posix_permissions=None, posix_umask=None, timeout=None):
         """
         Create a directory which can contain other directories or blobs.
@@ -3416,10 +3416,7 @@ class BaseBlobService(StorageClient):
             Name of existing container.
         :param str directory_path:
             Path of the directory to be created. Ex: 'dirfoo/dirbar'.
-        :param str proposed_lease_id:
-            Proposed lease ID, in a GUID string format. The Blob service
-            returns 400 (Invalid request) if the proposed lease ID is not
-            in the correct format.
+            The service will create parent directories if they do not exist yet.
         :param str lease_id:
             Required if the directory to be overwritten has an active lease.
         :param metadata:
@@ -3459,16 +3456,15 @@ class BaseBlobService(StorageClient):
             'timeout': _int_to_str(timeout),
         }
         request.headers = {
-            'x-ms-proposed-lease-id': _to_str(proposed_lease_id),
             'x-ms-lease-id': _to_str(lease_id),
             'x-ms-permissions': _to_str(posix_permissions),
             'x-ms-umask': _to_str(posix_umask),
         }
-        # TODO add test cases for lease and metadata
+        # TODO add test cases for lease
         _add_file_or_directory_properties_header(metadata, request)
         return self._perform_request(request, parser=_parse_base_properties)
 
-    def delete_directory(self, container_name, directory_path, fail_not_exist=False, recursive=True, marker=None,
+    def delete_directory(self, container_name, directory_path, fail_not_exist=False, recursive=False, marker=None,
                          lease_id=None, if_modified_since=None, if_unmodified_since=None, if_match=None,
                          if_none_match=None, timeout=None):
         """
@@ -3551,7 +3547,7 @@ class BaseBlobService(StorageClient):
 
     def rename_path(self, container_name, new_path, source_path,
                     mode=None, marker=None, lease_id=None, source_lease_id=None,
-                    metadata=None, source_if_modified_since=None, source_if_unmodified_since=None,
+                    source_if_modified_since=None, source_if_unmodified_since=None,
                     source_if_match=None, source_if_none_match=None, timeout=None):
         """
         Rename a blob or directory(which can contain other directories or blobs).
@@ -3559,14 +3555,20 @@ class BaseBlobService(StorageClient):
         :param str container_name:
             Name of existing container.
         :param str new_path:
-            New path for source_path. Ex: 'dirfoo/dirsubfoo'.
+            New path for source_path. Ex: 'topdir1/dirsubfoo'.
+            Note that the path should be an absolute path under the container.
         :param str source_path:
-            Path to be renamed. Ex: 'dirfoo/dirbar'.
+            Path to be renamed. Ex: 'topdir1/dirbar'.
+            Note that the path should be an absolute path under the container.
         :param mode:
             Optional. Valid only when namespace is enabled.
             This parameter determines the behavior of the rename operation.
             The value must be "legacy" or "posix", and the default value will be "posix".
-            A "posix" rename is done atomically; a "legacy" rename is done in batches and could return a marker.
+            Legacy: if the destination of the move is an existing directory and that directory is empty,
+            the source will overwrite the destination. If the directory is not empty, the move will fail.
+            Posix: if the destination of the move is an existing empty directory,
+            destination will be overwritten. Otherwise, the source will be moved into the destination directory.
+            If the destination is an existing file, the file will be overwritten.
         :param marker:
             Optional. When renaming a directory, the number of paths that are renamed with each invocation is limited.
             If the number of paths to be renamed exceeds this limit,
@@ -3578,12 +3580,6 @@ class BaseBlobService(StorageClient):
         :param str source_lease_id:
             Optional. A lease ID for the source_path.
             The source_path must have an active lease and the lease ID must match.
-        :param metadata:
-            Optional. A dict with name_value pairs to associate with the path as metadata.
-            Example:{'Category':'test'}.
-            If metadata is specified, it will overwrite the existing metadata;
-            otherwise, the existing metadata will be preserved.
-        :type metadata: dict(str, str)
         :param datetime source_if_modified_since:
             Optional. A date and time value. Specify this header to perform the rename operation
             only if the source has been modified since the specified date and time.
@@ -3625,8 +3621,6 @@ class BaseBlobService(StorageClient):
             'x-ms-source-if-match': _to_str(source_if_match),
             'x-ms-source-if-none-match': _to_str(source_if_none_match),
         }
-        # TODO add test cases for lease and metadata
-        _add_file_or_directory_properties_header(metadata, request)
         return self._perform_request(request, parser=_parse_continuation_token)
 
     def get_path_access_control(self, container_name, path, user_principle_names=False,
